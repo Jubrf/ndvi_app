@@ -38,13 +38,25 @@ if uploaded:
     geoms = [shape(feat["geometry"]) for feat in gdf["features"]]
 
     # -----------------------------
-    # 2 – Calcul BBOX
-    # -----------------------------
-    minx = min(g.bounds[0] for g in geoms)
-    miny = min(g.bounds[1] for g in geoms)
-    maxx = max(g.bounds[2] for g in geoms)
-    maxy = max(g.bounds[3] for g in geoms)
-    bbox = (minx, miny, maxx, maxy)
+# Calcul BBOX robuste (évite les BBOX dégénérées)
+xs = [g.bounds[0] for g in geoms] + [g.bounds[2] for g in geoms]
+ys = [g.bounds[1] for g in geoms] + [g.bounds[3] for g in geoms]
+
+minx = min(xs)
+maxx = max(xs)
+miny = min(ys)
+maxy = max(ys)
+
+# si la bbox est trop petite -> l’élargir
+if abs(maxx - minx) < 0.0001:
+    minx -= 0.0005
+    maxx += 0.0005
+
+if abs(maxy - miny) < 0.0001:
+    miny -= 0.0005
+    maxy += 0.0005
+
+bbox = (minx, miny, maxx, maxy)
 
     # -----------------------------
     # 3 – Recherche Sentinel‑2
