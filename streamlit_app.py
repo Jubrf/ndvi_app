@@ -15,8 +15,8 @@ from utils.ndvi_processing import (
 
 st.set_page_config(page_title="NDVI – Sentinel-2", layout="wide")
 
-st.write("USER =", st.secrets.get("julien.brefie@sdea.fr"))
-st.write("PASS LENGTH =", len(st.secrets.get("Jkp1!62Xq'81","")))
+st.write("TEST USER =", st.secrets.get("CDSE_USER"))
+st.write("TEST PASS LENGTH =", len(st.secrets.get("CDSE_PASS", "")))
 
 st.title("🌱 Analyse NDVI des parcelles agricoles – Sentinel‑2")
 
