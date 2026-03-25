@@ -20,7 +20,7 @@ def find_latest_s2_product(bbox):
 
     r = requests.get(
         url,
-        auth=(st.secrets["COPERNICUS_USER"], st.secrets["COPERNICUS_PASS"])
+        auth=(st.secrets["CDSE_USER"], st.secrets["CDSE_PASS"])
     )
 
     data = r.json()
