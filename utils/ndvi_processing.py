@@ -5,27 +5,47 @@ import pyogrio
 
 def load_vector_file(file):
     """
-    Lecture SHP ou GeoJSON via pyogrio.
-    Retourne un dict {features: [...]} structure GeoJSON-like.
+    Lecture SHP ou GeoJSON via pyogrio.read_vector (PAS read_dataframe).
+    Retourne un objet GeoJSON-like {features: [...]}
+    compatible sans GeoPandas.
     """
-    gdf = pyogrio.read_dataframe(file)
 
-    # Forcer WGS84 si possible
-    if gdf.crs is not None:
-        if gdf.crs.to_epsg() != 4326:
-            gdf = gdf.to_crs(4326)
+    # Lecture sans GeoPandas
+    data = pyogrio.read_vector(file)
 
+    geometries = data["geometry"]
+    crs = data["crs"]
     features = []
-    for _, row in gdf.iterrows():
-        geom = shape(row.geometry)
+
+    # Reprojection éventuelle
+    # -----------------------
+    # pyogrio.read_vector donne toujours des géométries Shapely,
+    # mais si la couche n’est pas en EPSG:4326, on doit la reprojeter.
+    if crs is not None and crs != "EPSG:4326":
+        # Reprojection Shapely SANS GeoPandas → via pyproj
+        import pyproj
+        from shapely.ops import transform
+
+        src = pyproj.CRS.from_user_input(crs)
+        dst = pyproj.CRS.from_epsg(4326)
+        proj = pyproj.Transformer.from_crs(src, dst, always_xy=True).transform
+
+        geometries = [transform(proj, geom) for geom in geometries]
+
+    # Construction de la structure GeoJSON-like
+    for geom in geometries:
         features.append({
             "geometry": geom.__geo_interface__,
             "properties": {}
         })
 
-    return {"features": features, "geometry": gdf.geometry}
+    return {"features": features}
+
 
 def compute_ndvi(red_path, nir_path):
+    """
+    Calcule le NDVI
+    """
     with rasterio.open(red_path) as red_src, rasterio.open(nir_path) as nir_src:
         red = red_src.read(1).astype("float32")
         nir = nir_src.read(1).astype("float32")
@@ -37,24 +57,19 @@ def compute_ndvi(red_path, nir_path):
 
     return ndvi, transform
 
+
 def compute_zonal_stats(gdf, ndvi_array, transform):
     """
-    Zonal stats manuel : NDVI moyen par polygone.
-    On échantillonne les pixels intersectant le polygone.
+    Zonal statistics sans rasterstats (incompatible Streamlit Cloud).
+    Échantillonne les pixels du NDVI dans chaque polygone.
     """
-
     height, width = ndvi_array.shape
-    ndvi_results = []
 
     for feat in gdf["features"]:
         geom = shape(feat["geometry"])
-        xs = []
-        ys = []
-
-        # On récupère toutes les coordonnées dans l’enveloppe du polygone
         minx, miny, maxx, maxy = geom.bounds
 
-        # Calcul indices pixel
+        # Calcul indices pixels
         row_min, col_min = ~transform * (minx, maxy)
         row_max, col_max = ~transform * (maxx, miny)
 
@@ -67,16 +82,12 @@ def compute_zonal_stats(gdf, ndvi_array, transform):
 
         for row in range(row_min, row_max + 1):
             for col in range(col_min, col_max + 1):
-                # coord du pixel
                 x, y = transform * (col + 0.5, row + 0.5)
                 if geom.contains(shape({"type": "Point", "coordinates": (x, y)})):
                     val = ndvi_array[row, col]
                     if not np.isnan(val):
                         values.append(val)
 
-        ndvi_mean = float(np.mean(values)) if len(values) else None
-        feat["properties"]["NDVI"] = ndvi_mean
-
-        ndvi_results.append(ndvi_mean)
+        feat["properties"]["NDVI"] = float(np.mean(values)) if values else None
 
     return gdf
