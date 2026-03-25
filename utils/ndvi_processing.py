@@ -1,14 +1,17 @@
 import numpy as np
 import rasterio
 import tempfile
+import shapefile  # pyshp (pure python)
 from shapely.geometry import shape
+from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import transform
-import pyogrio
 import pyproj
+import json
+import zipfile
 
 
 def save_uploaded_file_to_temp(uploaded):
-    """Sauvegarde un fichier UploadStreamlit dans un vrai fichier temporaire."""
+    """Save uploaded file into a temporary location."""
     suffix = ".zip" if uploaded.name.endswith(".zip") else ".geojson"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.write(uploaded.getbuffer())
@@ -18,14 +21,17 @@ def save_uploaded_file_to_temp(uploaded):
 
 def load_vector_file(uploaded):
     """
-    Lecture universelle SHP (ZIP) ou GeoJSON via pyogrio.
-    Compatible Streamlit Cloud.
+    Universal loader for:
+    - SHP inside ZIP (using pyshp)
+    - GEOJSON
     """
+
     path = save_uploaded_file_to_temp(uploaded)
 
-    # Cas GEOJSON direct → shapely convertit tout seul
+    # -------------------------
+    # CASE 1 : GEOJSON DIRECT
+    # -------------------------
     if path.endswith(".geojson"):
-        import json
         with open(path, "r") as f:
             gj = json.load(f)
 
@@ -38,37 +44,59 @@ def load_vector_file(uploaded):
             })
         return {"features": features}
 
-    # Cas ZIP SHP → pyogrio list_layers / read_features
-    layers = pyogrio.list_layers(path)
-    layer_name = layers[0][0]  # 1er layer du shapefile
+    # -------------------------
+    # CASE 2 : ZIP with SHP
+    # -------------------------
+    if path.endswith(".zip"):
+        with zipfile.ZipFile(path, "r") as z:
+            # Extract all
+            extract_dir = tempfile.mkdtemp()
+            z.extractall(extract_dir)
 
-    geoms = []
-    crs = None
+        # Find .shp
+        shp_path = None
+        for f in os.listdir(extract_dir):
+            if f.endswith(".shp"):
+                shp_path = extract_dir + "/" + f
+                break
 
-    for feat in pyogrio.read_features(path, layer=layer_name):
-        geom = shape(feat["geometry"])
-        geoms.append(geom)
+        # Read with pyshp
+        sf = shapefile.Reader(shp_path)
+        shapes = sf.shapes()
 
-        if crs is None:
-            info = pyogrio.read_info(path, layer=layer_name)
-            crs = info["crs"]
+        geoms = []
+        for s in shapes:
+            geom = shape(s.__geo_interface__)
+            geoms.append(geom)
 
-    # Reprojection vers EPSG:4326 si nécessaire
-    if crs and crs != "EPSG:4326":
-        src = pyproj.CRS.from_user_input(crs)
-        dst = pyproj.CRS.from_epsg(4326)
-        transformer = pyproj.Transformer.from_crs(src, dst, always_xy=True).transform
-        geoms = [transform(transformer, g) for g in geoms]
+        # Try reading projection
+        prj_path = shp_path.replace(".shp", ".prj")
+        crs = None
+        if os.path.exists(prj_path):
+            with open(prj_path, "r") as f:
+                wkt = f.read()
+            try:
+                crs = pyproj.CRS.from_wkt(wkt)
+            except:
+                crs = None
 
-    # Construire GeoJSON-like
-    features = []
-    for g in geoms:
-        features.append({
-            "geometry": g.__geo_interface__,
-            "properties": {}
-        })
+        # Reproject if necessary
+        if crs and crs.to_epsg() != 4326:
+            dst = pyproj.CRS.from_epsg(4326)
+            transformer = pyproj.Transformer.from_crs(crs, dst, always_xy=True).transform
+            geoms = [transform(transformer, g) for g in geoms]
 
-    return {"features": features}
+        # Build features
+        features = []
+        for g in geoms:
+            features.append({
+                "geometry": g.__geo_interface__,
+                "properties": {}
+            })
+
+        return {"features": features}
+
+    raise ValueError("Format non reconnu")
 
 
 def compute_ndvi(red_path, nir_path):
@@ -85,9 +113,6 @@ def compute_ndvi(red_path, nir_path):
 
 
 def compute_zonal_stats(gdf, ndvi_array, transform):
-    """
-    Zonal stats minimaliste compatible Streamlit Cloud.
-    """
     height, width = ndvi_array.shape
 
     for feat in gdf["features"]:
