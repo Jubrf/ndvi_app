@@ -2,11 +2,6 @@ import requests
 import streamlit as st
 
 def find_latest_s2_product(bbox):
-    """
-    Recherche la dernière image Sentinel‑2 L2A disponible sur la zone.
-    bbox = (minx, miny, maxx, maxy) en WGS84
-    """
-
     minx, miny, maxx, maxy = bbox
 
     poly = (
