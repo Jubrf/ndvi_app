@@ -23,7 +23,14 @@ def find_latest_s2_product(bbox):
         auth=(st.secrets["CDSE_USER"], st.secrets["CDSE_PASS"])
     )
 
+    try:
     data = r.json()
+    return data["value"][0] if data.get("value") else None
+except Exception:
+    st.error("❌ L’API Copernicus n’a pas renvoyé du JSON.")
+    st.write("➡️ Code HTTP :", r.status_code)
+    st.write("➡️ Réponse (début) :", r.text[:500])
+    return None
 
     if "value" not in data or len(data["value"]) == 0:
         return None
