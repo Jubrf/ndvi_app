@@ -14,7 +14,7 @@ from utils.ndvi_processing import (
 
 st.set_page_config(page_title="NDVI – Sentinel-2", layout="wide")
 
-# ✅ TEST SECRETS
+# ✅ TEST DES SECRETS
 st.write("TEST USER =", st.secrets.get("CDSE_USER"))
 st.write("TEST PASS LENGTH =", len(st.secrets.get("CDSE_PASS", "")))
 
@@ -38,25 +38,33 @@ if uploaded:
     geoms = [shape(feat["geometry"]) for feat in gdf["features"]]
 
     # -----------------------------
-# Calcul BBOX robuste (évite les BBOX dégénérées)
-xs = [g.bounds[0] for g in geoms] + [g.bounds[2] for g in geoms]
-ys = [g.bounds[1] for g in geoms] + [g.bounds[3] for g in geoms]
+    # 2 – Calcul BBOX robuste
+    # -----------------------------
+    xs = []
+    ys = []
 
-minx = min(xs)
-maxx = max(xs)
-miny = min(ys)
-maxy = max(ys)
+    for g in geoms:
+        minx, miny, maxx, maxy = g.bounds
+        xs += [minx, maxx]
+        ys += [miny, maxy]
 
-# si la bbox est trop petite -> l’élargir
-if abs(maxx - minx) < 0.0001:
-    minx -= 0.0005
-    maxx += 0.0005
+    minx = min(xs)
+    maxx = max(xs)
+    miny = min(ys)
+    maxy = max(ys)
 
-if abs(maxy - miny) < 0.0001:
-    miny -= 0.0005
-    maxy += 0.0005
+    # ✅ Empêcher les BBOX trop petites (elles déclenchent 403 sur Copernicus)
+    if abs(maxx - minx) < 0.0005:
+        minx -= 0.001
+        maxx += 0.001
 
-bbox = (minx, miny, maxx, maxy)
+    if abs(maxy - miny) < 0.0005:
+        miny -= 0.001
+        maxy += 0.001
+
+    bbox = (minx, miny, maxx, maxy)
+
+    st.write("✅ BBOX envoyée à l’API :", bbox)
 
     # -----------------------------
     # 3 – Recherche Sentinel‑2
@@ -66,7 +74,7 @@ bbox = (minx, miny, maxx, maxy)
     product = find_latest_s2_product(bbox)
 
     if product is None:
-        st.error("❌ Aucun produit Sentinel‑2 trouvé.")
+        st.error("❌ Aucun produit Sentinel‑2 trouvé ou API en erreur.")
         st.stop()
 
     st.success("✅ Produit trouvé : " + product["Name"])
