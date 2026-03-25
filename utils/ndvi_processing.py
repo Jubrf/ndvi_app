@@ -1,9 +1,9 @@
 import numpy as np
 import rasterio
 import tempfile
-import shapefile  # pyshp (pure python)
+import os
+import shapefile  # pyshp
 from shapely.geometry import shape
-from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import transform
 import pyproj
 import json
@@ -24,13 +24,12 @@ def load_vector_file(uploaded):
     Universal loader for:
     - SHP inside ZIP (using pyshp)
     - GEOJSON
+    Compatible Streamlit Cloud (no GDAL, no Fiona, no GeoPandas)
     """
 
     path = save_uploaded_file_to_temp(uploaded)
 
-    # -------------------------
-    # CASE 1 : GEOJSON DIRECT
-    # -------------------------
+    # CASE 1 : GEOJSON
     if path.endswith(".geojson"):
         with open(path, "r") as f:
             gj = json.load(f)
@@ -42,34 +41,32 @@ def load_vector_file(uploaded):
                 "geometry": geom.__geo_interface__,
                 "properties": {}
             })
+
         return {"features": features}
 
-    # -------------------------
-    # CASE 2 : ZIP with SHP
-    # -------------------------
+    # CASE 2 : ZIP (contains SHP)
     if path.endswith(".zip"):
         with zipfile.ZipFile(path, "r") as z:
-            # Extract all
             extract_dir = tempfile.mkdtemp()
             z.extractall(extract_dir)
 
-        # Find .shp
+        # find .shp inside extracted folder
         shp_path = None
         for f in os.listdir(extract_dir):
             if f.endswith(".shp"):
-                shp_path = extract_dir + "/" + f
+                shp_path = os.path.join(extract_dir, f)
                 break
 
-        # Read with pyshp
+        if shp_path is None:
+            raise ValueError("ZIP uploaded but no .shp file inside")
+
+        # Read shapefile (pyshp)
         sf = shapefile.Reader(shp_path)
         shapes = sf.shapes()
 
-        geoms = []
-        for s in shapes:
-            geom = shape(s.__geo_interface__)
-            geoms.append(geom)
+        geoms = [shape(s.__geo_interface__) for s in shapes]
 
-        # Try reading projection
+        # Read projection if exists
         prj_path = shp_path.replace(".shp", ".prj")
         crs = None
         if os.path.exists(prj_path):
@@ -80,7 +77,7 @@ def load_vector_file(uploaded):
             except:
                 crs = None
 
-        # Reproject if necessary
+        # Reproject if needed
         if crs and crs.to_epsg() != 4326:
             dst = pyproj.CRS.from_epsg(4326)
             transformer = pyproj.Transformer.from_crs(crs, dst, always_xy=True).transform
@@ -96,7 +93,7 @@ def load_vector_file(uploaded):
 
         return {"features": features}
 
-    raise ValueError("Format non reconnu")
+    raise ValueError("Format de fichier non reconnu (doit être .geojson ou .zip contenant SHP)")
 
 
 def compute_ndvi(red_path, nir_path):
@@ -119,6 +116,7 @@ def compute_zonal_stats(gdf, ndvi_array, transform):
         geom = shape(feat["geometry"])
         minx, miny, maxx, maxy = geom.bounds
 
+        # coords → raster indices
         row_min, col_min = ~transform * (minx, maxy)
         row_max, col_max = ~transform * (maxx, miny)
 
@@ -132,6 +130,7 @@ def compute_zonal_stats(gdf, ndvi_array, transform):
         for row in range(row_min, row_max + 1):
             for col in range(col_min, col_max + 1):
                 x, y = transform * (col + 0.5, row + 0.5)
+
                 if geom.contains(shape({"type": "Point", "coordinates": (x, y)})):
                     v = ndvi_array[row, col]
                     if not np.isnan(v):
