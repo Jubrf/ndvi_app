@@ -3,7 +3,7 @@ numpy
 requests
 rasterio
 shapely
-pyogrio
 pyproj
+pyshp
 folium
 streamlit-folium
