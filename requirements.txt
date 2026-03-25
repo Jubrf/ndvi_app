@@ -4,5 +4,6 @@ requests
 rasterio
 shapely
 pyogrio
+pyproj
 folium
 streamlit-folium
