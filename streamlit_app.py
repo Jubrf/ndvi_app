@@ -14,6 +14,7 @@ from utils.ndvi_processing import (
 
 st.set_page_config(page_title="NDVI – Sentinel-2", layout="wide")
 
+# ✅ TEST SECRETS
 st.write("TEST USER =", st.secrets.get("CDSE_USER"))
 st.write("TEST PASS LENGTH =", len(st.secrets.get("CDSE_PASS", "")))
 
@@ -33,56 +34,55 @@ if uploaded:
     n_parcelles = len(gdf["features"])
     st.success(f"{n_parcelles} parcelles chargées ✅")
 
-    # Extraire les géométries shapely
+    # Extraction géométries shapely
     geoms = [shape(feat["geometry"]) for feat in gdf["features"]]
 
     # -----------------------------
-    # 2 – Calcul BBOX WGS84
+    # 2 – Calcul BBOX
     # -----------------------------
     minx = min(g.bounds[0] for g in geoms)
     miny = min(g.bounds[1] for g in geoms)
     maxx = max(g.bounds[2] for g in geoms)
     maxy = max(g.bounds[3] for g in geoms)
-
     bbox = (minx, miny, maxx, maxy)
 
     # -----------------------------
-    # 3 – Recherche de la dernière image Sentinel‑2
+    # 3 – Recherche Sentinel‑2
     # -----------------------------
     st.info("Recherche de la dernière image Sentinel‑2 L2A…")
+
     product = find_latest_s2_product(bbox)
 
     if product is None:
-        st.error("❌ Aucune image Sentinel-2 trouvée sur cette zone.")
+        st.error("❌ Aucun produit Sentinel‑2 trouvé.")
         st.stop()
 
     st.success("✅ Produit trouvé : " + product["Name"])
     product_id = product["Id"]
 
     # -----------------------------
-    # 4 – Téléchargement bandes B04 / B08
+    # 4 – Téléchargement bandes
     # -----------------------------
     st.info("Téléchargement des bandes B04 et B08…")
-
     red_path = download_s2_band(product_id, "B04")
     nir_path = download_s2_band(product_id, "B08")
 
     # -----------------------------
-    # 5 – Calcul NDVI
+    # 5 – NDVI
     # -----------------------------
-    st.info("Calcul NDVI…")
+    st.info("Calcul du NDVI…")
     ndvi_array, transform = compute_ndvi(red_path, nir_path)
     st.success("✅ NDVI calculé")
 
     # -----------------------------
-    # 6 – Zonal statistics
+    # 6 – NDVI moyen par parcelle
     # -----------------------------
     st.info("Calcul NDVI moyen par parcelle…")
     gdf = compute_zonal_stats(gdf, ndvi_array, transform)
-    st.success("✅ Analyse NDVI terminée")
+    st.success("✅ Terminé")
 
     # -----------------------------
-    # 7 – Affichage carte
+    # 7 – Carte NDVI
     # -----------------------------
     st.subheader("🗺️ Carte NDVI")
 
@@ -116,3 +116,26 @@ if uploaded:
             ),
         ).add_to(m)
 
+    st_folium(m, height=600)
+
+    # -----------------------------
+    # 8 – Tableau NDVI
+    # -----------------------------
+    st.subheader("📊 Tableau NDVI")
+    rows = [
+        {"Parcelle": i + 1, "NDVI": feat["properties"]["NDVI"]}
+        for i, feat in enumerate(gdf["features"])
+    ]
+    st.dataframe(rows)
+
+    # -----------------------------
+    # 9 – Export CSV
+    # -----------------------------
+    import pandas as pd
+    df = pd.DataFrame(rows)
+
+    st.download_button(
+        "Télécharger NDVI (CSV)",
+        df.to_csv(index=False).encode(),
+        "ndvi.csv"
+    )
