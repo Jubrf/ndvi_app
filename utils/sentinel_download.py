@@ -4,10 +4,8 @@ import streamlit as st
 
 def download_s2_band(product_id, band):
     """
-    Télécharge une bande Sentinel‑2 du produit choisi (JP2 10 m).
-    Exemple : band="B04" ou "B08".
+    Télécharge une bande (JP2) du produit Sentinel-2.
     """
-
     url = (
         f"https://dataspace.copernicus.eu/odata/v1/Products({product_id})/"
         f"$value/GRANULE/*/IMG_DATA/R10m/{band}.jp2"
