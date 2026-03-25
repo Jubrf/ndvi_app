@@ -1,26 +1,16 @@
 import requests
+import tempfile
 import streamlit as st
 
-def find_latest_s2_product(bbox):
+def download_s2_band(product_id, band):
     """
-    Recherche la dernière image Sentinel‑2 L2A disponible sur la zone.
-    bbox = (minx, miny, maxx, maxy) en WGS84
+    Télécharge une bande Sentinel‑2 du produit choisi (JP2 10 m).
+    Exemple : band="B04" ou "B08".
     """
-
-    minx, miny, maxx, maxy = bbox
-
-    poly = (
-        f"POLYGON(({minx} {miny}, {maxx} {miny}, "
-        f"{maxx} {maxy}, {minx} {maxy}, {minx} {miny}))"
-    )
 
     url = (
-        "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
-        f"$filter=Collection/Name eq 'SENTINEL-2' "
-        f"and OData.CSC.Intersects(area=geometry'{poly}') "
-        f"and Attributes/OData.CSC.DoubleAttribute/any(att: att/Name eq 'cloudCover' and att/Value lt 40)"
-        "&$orderby=ContentDate/Start desc"
-        "&$top=1"
+        f"https://dataspace.copernicus.eu/odata/v1/Products({product_id})/"
+        f"$value/GRANULE/*/IMG_DATA/R10m/{band}.jp2"
     )
 
     r = requests.get(
@@ -28,9 +18,7 @@ def find_latest_s2_product(bbox):
         auth=(st.secrets["COPERNICUS_USER"], st.secrets["COPERNICUS_PASS"])
     )
 
-    data = r.json()
-
-    if "value" not in data or len(data["value"]) == 0:
-        return None
-
-    return data["value"][0]
+    tmp = tempfile.NamedTemporaryFile(suffix=".jp2", delete=False)
+    tmp.write(r.content)
+    tmp.close()
+    return tmp.name
