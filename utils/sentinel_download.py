@@ -13,7 +13,7 @@ def download_s2_band(product_id, band):
 
     r = requests.get(
         url,
-        auth=(st.secrets["COPERNICUS_USER"], st.secrets["COPERNICUS_PASS"])
+        auth=(st.secrets["CDSE_USER"], st.secrets["CDSE_PASS"])
     )
 
     tmp = tempfile.NamedTemporaryFile(suffix=".jp2", delete=False)
