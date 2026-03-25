@@ -1,4 +1,3 @@
-# force streamlit refresh
 import streamlit as st
 import json
 import folium
