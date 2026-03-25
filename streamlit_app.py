@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 import folium
+from shapely.geometry import shape
 from streamlit_folium import st_folium
 
 from utils.sentinel_search import find_latest_s2_product
@@ -21,35 +22,42 @@ uploaded = st.file_uploader(
 )
 
 if uploaded:
+
     # -----------------------------
     # 1 – Lecture du fichier vecteur
     # -----------------------------
     gdf = load_vector_file(uploaded)
-    st.success(f"{len(gdf)} parcelles chargées ✅")
+    n_parcelles = len(gdf["features"])
+    st.success(f"{n_parcelles} parcelles chargées ✅")
 
-    # BBOX pour Sentinel
-    minx = min(poly.bounds[0] for poly in gdf["geometry"])
-    miny = min(poly.bounds[1] for poly in gdf["geometry"])
-    maxx = max(poly.bounds[2] for poly in gdf["geometry"])
-    maxy = max(poly.bounds[3] for poly in gdf["geometry"])
+    # Extraire les géométries shapely
+    geoms = [shape(feat["geometry"]) for feat in gdf["features"]]
+
+    # -----------------------------
+    # 2 – Calcul BBOX WGS84
+    # -----------------------------
+    minx = min(g.bounds[0] for g in geoms)
+    miny = min(g.bounds[1] for g in geoms)
+    maxx = max(g.bounds[2] for g in geoms)
+    maxy = max(g.bounds[3] for g in geoms)
 
     bbox = (minx, miny, maxx, maxy)
 
     # -----------------------------
-    # 2 – Trouver la dernière image Sentinel‑2
+    # 3 – Recherche de la dernière image Sentinel‑2
     # -----------------------------
     st.info("Recherche de la dernière image Sentinel‑2 L2A…")
     product = find_latest_s2_product(bbox)
 
     if product is None:
-        st.error("❌ Aucune image Sentinel-2 trouvée.")
+        st.error("❌ Aucune image Sentinel-2 trouvée sur cette zone.")
         st.stop()
 
     st.success("✅ Produit trouvé : " + product["Name"])
     product_id = product["Id"]
 
     # -----------------------------
-    # 3 – Télécharger bandes B04 / B08
+    # 4 – Téléchargement bandes B04 / B08
     # -----------------------------
     st.info("Téléchargement des bandes B04 et B08…")
 
@@ -57,21 +65,21 @@ if uploaded:
     nir_path = download_s2_band(product_id, "B08")
 
     # -----------------------------
-    # 4 – Calcul NDVI
+    # 5 – Calcul NDVI
     # -----------------------------
     st.info("Calcul NDVI…")
     ndvi_array, transform = compute_ndvi(red_path, nir_path)
     st.success("✅ NDVI calculé")
 
     # -----------------------------
-    # 5 – Zonal statistics NDVI
+    # 6 – Zonal statistics
     # -----------------------------
     st.info("Calcul NDVI moyen par parcelle…")
     gdf = compute_zonal_stats(gdf, ndvi_array, transform)
-    st.success("✅ Statistiques NDVI calculées")
+    st.success("✅ Analyse NDVI terminée")
 
     # -----------------------------
-    # 6 – Affichage carte
+    # 7 – Affichage carte
     # -----------------------------
     st.subheader("🗺️ Carte NDVI")
 
@@ -82,7 +90,9 @@ if uploaded:
         g = int(v * 255)
         return f"#{r:02x}{g:02x}00"
 
-    m = folium.Map(location=[(miny + maxy) / 2, (minx + maxx) / 2], zoom_start=12)
+    center_lat = (miny + maxy) / 2
+    center_lon = (minx + maxx) / 2
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
 
     for feat in gdf["features"]:
         ndvi = feat["properties"]["NDVI"]
@@ -98,32 +108,8 @@ if uploaded:
             },
             tooltip=folium.GeoJsonTooltip(
                 fields=["NDVI"],
-                aliases=["NDVI moyen :"],
+                aliases=["NDVI :"],
                 localize=True
             ),
         ).add_to(m)
 
-    st_folium(m, height=600)
-
-    # -----------------------------
-    # 7 – Tableau NDVI
-    # -----------------------------
-    st.subheader("📊 Tableau NDVI")
-    rows = [
-        {"Parcelle": i + 1, "NDVI": feat["properties"]["NDVI"]}
-        for i, feat in enumerate(gdf["features"])
-    ]
-
-    st.dataframe(rows)
-
-    # -----------------------------
-    # 8 – Export CSV
-    # -----------------------------
-    import pandas as pd
-    df = pd.DataFrame(rows)
-
-    st.download_button(
-        "Télécharger NDVI (CSV)",
-        df.to_csv().encode(),
-        "ndvi.csv"
-    )
